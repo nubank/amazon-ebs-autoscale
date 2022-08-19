@@ -147,10 +147,10 @@ alphabet=( {a..z} )
 
 function get_next_logical_device() {
     for letter in ${alphabet[@]}; do
-        if [[ ! -z $(cat /var/run/ebs_autoscale_device_used | grep -w $letter) ]]; then
+        if [ ! -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
             if [ ! -b "/dev/xvdb${letter}" ]; then
                echo "/dev/xvdb${letter}"
-               printf '%s\n' "${letter}" >> /var/run/ebs_autoscale_device_used
+               echo "${letter}" >> /var/run/ebs_autoscale_device_used
                break
             fi
         fi
@@ -300,7 +300,8 @@ function create_and_attach_volume() {
     echo "$(( created_size + SIZE ))" > /var/run/ebs_autoscale_created_size
 
     logthis "waiting for volume $volume_id on filesystem"
-    while true; do
+    retry=10
+    for i in $(seq $retry); do
         if [ -e "$device" ]; then
             logthis "volume $volume_id on filesystem as $device"
             break
