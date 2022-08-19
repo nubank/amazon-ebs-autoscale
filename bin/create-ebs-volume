@@ -144,14 +144,16 @@ if [[ ! "$SIZE" ]]; then
 fi
 
 alphabet=( {a..z} )
+used=( )
 
 function get_next_logical_device() {
     for letter in ${alphabet[@]}; do
-        # use /dev/xvdb* device names to avoid contention for /dev/sd* and /dev/xvda names
-        # only supported by HVM instances
-        if [ ! -b "/dev/xvdb${letter}" ]; then
-            echo "/dev/xvdb${letter}"
-            break
+        if [[ ! -z $(printf '%s\n' "${used[@]}" | grep -w $letter) ]]; then
+            if [ ! -b "/dev/xvdb${letter}" ]; then
+               echo "/dev/xvdb${letter}"
+               used+=($letter)
+               break
+            fi
         fi
     done
 }
