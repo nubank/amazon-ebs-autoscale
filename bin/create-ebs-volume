@@ -157,6 +157,8 @@ function get_next_logical_device() {
     done
 }
 
+touch /var/run/{ebs_autoscale_attached_volumes,ebs_autoscale_created_volumes,ebs_autoscale_created_size,ebs_autoscale_device_used}
+
 function create_and_attach_volume() {
     local instance_id=$(get_metadata instance-id)
     local availability_zone=$(get_metadata placement/availability-zone)
