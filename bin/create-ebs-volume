@@ -147,14 +147,17 @@ alphabet=( {a..z} )
 
 function get_next_logical_device() {
     for letter in ${alphabet[@]}; do
-        # use /dev/xvdb* device names to avoid contention for /dev/sd* and /dev/xvda names
-        # only supported by HVM instances
-        if [ ! -b "/dev/xvdb${letter}" ]; then
-            echo "/dev/xvdb${letter}"
-            break
+        if [ -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
+            if [ ! -b "/dev/xvdb${letter}" ]; then
+               echo "/dev/xvdb${letter}"
+               echo "${letter}" >> /var/run/ebs_autoscale_device_used
+               break
+            fi
         fi
     done
 }
+
+touch /var/run/{ebs_autoscale_attached_volumes,ebs_autoscale_created_volumes,ebs_autoscale_created_size,ebs_autoscale_device_used}
 
 function create_and_attach_volume() {
     local instance_id=$(get_metadata instance-id)
@@ -290,11 +293,17 @@ function create_and_attach_volume() {
     echo "$(( created_size + SIZE ))" > /var/run/ebs_autoscale_created_size
 
     logthis "waiting for volume $volume_id on filesystem"
-    while true; do
+    retry=10
+    for i in $(seq $retry); do
         if [ -e "$device" ]; then
             logthis "volume $volume_id on filesystem as $device"
             break
         fi
+
+        if [ "$i" -eq "10" ]; then
+           error "waiting for volume $volume_id on filesystem as $device timed out"
+        fi
+
         sleep 1
     done
 
