@@ -308,12 +308,13 @@ function create_and_attach_volume() {
             logthis "volume $volume_id on filesystem as $device"
             break
         fi
+
+        if [ "$i" -eq "10" ]; then
+           error "waiting for volume $volume_id on filesystem as $device timed out"
+        fi
+
         sleep 1
     done
-
-    if [ "$i" -eq "10" ]; then
-        error "waiting for volume $volume_id on filesystem as $device timed out"
-    fi
 
     echo $device
 }
