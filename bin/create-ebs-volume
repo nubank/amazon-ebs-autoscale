@@ -147,7 +147,7 @@ alphabet=( {a..z} )
 
 function get_next_logical_device() {
     for letter in ${alphabet[@]}; do
-        if [ ! -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
+        if [ -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
             if [ ! -b "/dev/xvdb${letter}" ]; then
                echo "/dev/xvdb${letter}"
                echo "${letter}" >> /var/run/ebs_autoscale_device_used
