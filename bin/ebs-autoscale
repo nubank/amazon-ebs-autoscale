@@ -29,8 +29,13 @@
 #  POSSIBILITY OF SUCH DAMAGE.
 
 . /opt/local/amazon-ebs-autoscale-shared-utils.sh
-
 initialize
+
+names=( "attached_volumes" "created_volumes" "created_size" "device_used" )
+for name in "${names[@]}"; do
+  file="/var/run/ebs_autoscale_$name"
+  test -f $file || echo 0 > $file
+done
 
 MAX_EBS_VOLUME_SIZE=$(get_config_value .limits.max_ebs_volume_size)
 MAX_LOGICAL_VOLUME_SIZE=$(get_config_value .limits.max_logical_volume_size)
@@ -57,7 +62,7 @@ until [ -d "${MOUNTPOINT}" ]; do
 done
 
 get_num_devices() {
-  cat /var/run/ebs_autoscale_attached_volumes || echo 0
+  cat /var/run/ebs_autoscale_attached_volumes
 }
 
 calc_threshold() {
@@ -84,7 +89,6 @@ calc_new_size() {
   # calculates the size to use for new ebs volumes to expand space
   # new volume sizes increase as the number of attached volumes increase
   local num_devices=$1
-  #local num_devices=$(get_num_devices)
   local new_size=150
 
   if [ "$num_devices" -ge "4" ] && [ "$num_devices" -le "6" ]; then
@@ -117,7 +121,6 @@ calc_new_size() {
 }
 
 add_space () {
-  #local num_devices=$(get_num_devices)
   local num_devices=$1
   if [ "${num_devices}" -ge "$MAX_EBS_VOLUME_COUNT" ]; then
     logthis "No more volumes can be safely added."
@@ -140,7 +143,9 @@ add_space () {
       else
         logthis "Adding device ${DEVICE} to logical volume /dev/mapper/${LVM_VG}-${LVM_LV}"
         vgextend ${LVM_VG} ${DEVICE}
-        lvresize -l 100%VG /dev/mapper/${LVM_VG}-${LVM_LV}
+        while ! timeout 5 lvresize -l 100%VG /dev/mapper/${LVM_VG}-${LVM_LV}; do
+          sleep 1
+        done
         resize2fs /dev/mapper/${LVM_VG}-${LVM_LV}
       fi
       logthis "Finished extending logical volume"
@@ -169,8 +174,8 @@ DETECTION_INTERVAL=$(get_config_value .detection_interval)
 # get the number of devices once when the script first starts
 NUM_DEVICES=$(get_num_devices)
 THRESHOLD=$(calc_threshold "${NUM_DEVICES}")
-while true; do
 
+while true; do
   STATS=$(df -BG  ${MOUNTPOINT} | grep -v Filesystem)
   TOTAL_SIZE=$(echo ${STATS} | awk '{print $2}')
   USED=$(echo ${STATS} | awk '{print $3}')
@@ -180,8 +185,11 @@ while true; do
     # get number of devices only when we need to add more space
   	NUM_DEVICES=$(get_num_devices)
     logthis "LOW DISK (${PCT_UTILIZATION}%): Adding more."
-    add_space "$NUM_DEVICES"
-	NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
+    if ! add_space "$NUM_DEVICES"; then
+      logthis "Failed to add space, retrying"
+      break
+    fi
+	  NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
     THRESHOLD=$(calc_threshold "$NUM_DEVICES")
     LOG_COUNT=$LOG_INTERVAL
   fi

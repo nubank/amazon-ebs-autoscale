@@ -32,7 +32,6 @@ set -e
 
 . /opt/local/amazon-ebs-autoscale-shared-utils.sh
 initialize
-touch /var/run/ebs_autoscale_{attached_volumes,created_volumes,created_size,device_used}
 
 USAGE=$(cat <<EOF
 Create EBS volume
@@ -169,19 +168,19 @@ function create_and_attach_volume() {
       )
 
     local max_attempts=10
-    local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes || echo 0)
+    local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes)
     # check how many volumes are currently attached
     if [ "${attached_volumes}" -ge "$MAX_ATTACHED_VOLUMES" ]; then
         error "maximum number of attached volumes reached ($MAX_ATTACHED_VOLUMES)"
     fi
 
-    local created_volumes=$(cat /var/run/ebs_autoscale_created_volumes || echo 0)
+    local created_volumes=$(cat /var/run/ebs_autoscale_created_volumes)
     # check how many volumes this instance has created
     if [ "${created_volumes}" -ge "$MAX_CREATED_VOLUMES" ]; then
         error "maximum number of created volumes reached ($MAX_CREATED_VOLUMES)"
     fi
 
-    local created_size=$(cat /var/run/ebs_autoscale_created_size || echo 0)
+    local created_size=$(cat /var/run/ebs_autoscale_created_size)
     # check how much EBS storage this instance has created
     if [ "$created_size" -ge "$MAX_TOTAL_EBS_SIZE" ]; then
         error "maximum total ebs volume size reached ($MAX_TOTAL_EBS_SIZE)"
