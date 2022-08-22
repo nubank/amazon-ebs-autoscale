@@ -32,6 +32,7 @@ set -e
 
 . /opt/local/amazon-ebs-autoscale-shared-utils.sh
 initialize
+touch /var/run/ebs_autoscale_{attached_volumes,created_volumes,created_size,device_used}
 
 USAGE=$(cat <<EOF
 Create EBS volume
@@ -143,21 +144,11 @@ if [[ ! "$SIZE" ]]; then
     error "missing required argument --size"
 fi
 
-alphabet=( {a..z} )
-
 function get_next_logical_device() {
-    for letter in ${alphabet[@]}; do
-        if [ -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
-            if [ ! -b "/dev/xvdb${letter}" ]; then
-               echo "/dev/xvdb${letter}"
-               echo "${letter}" >> /var/run/ebs_autoscale_device_used
-               break
-            fi
-        fi
-    done
+    next=$(( $(cat ebs_autoscale_device_used) + 1 ))
+    echo "$next" > ebs_autoscale_device_used
+    echo "/dev/xvdn${next}"
 }
-
-touch /var/run/{ebs_autoscale_attached_volumes,ebs_autoscale_created_volumes,ebs_autoscale_created_size,ebs_autoscale_device_used}
 
 function create_and_attach_volume() {
     local instance_id=$(get_metadata instance-id)
