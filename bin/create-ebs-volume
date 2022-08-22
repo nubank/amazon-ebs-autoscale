@@ -143,21 +143,11 @@ if [[ ! "$SIZE" ]]; then
     error "missing required argument --size"
 fi
 
-alphabet=( {a..z} )
-
 function get_next_logical_device() {
-    for letter in ${alphabet[@]}; do
-        if [ -z "$(cat /var/run/ebs_autoscale_device_used | grep -w $letter)" ]; then
-            if [ ! -b "/dev/xvdb${letter}" ]; then
-               echo "/dev/xvdb${letter}"
-               echo "${letter}" >> /var/run/ebs_autoscale_device_used
-               break
-            fi
-        fi
-    done
+    next=$(( $(cat /var/run/ebs_autoscale_device_used) + 1 ))
+    echo "$next" > /var/run/ebs_autoscale_device_used
+    echo "/dev/xvdn${next}"
 }
-
-touch /var/run/{ebs_autoscale_attached_volumes,ebs_autoscale_created_volumes,ebs_autoscale_created_size,ebs_autoscale_device_used}
 
 function create_and_attach_volume() {
     local instance_id=$(get_metadata instance-id)
@@ -178,19 +168,19 @@ function create_and_attach_volume() {
       )
 
     local max_attempts=10
-    local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes || echo 0)
+    local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes)
     # check how many volumes are currently attached
     if [ "${attached_volumes}" -ge "$MAX_ATTACHED_VOLUMES" ]; then
         error "maximum number of attached volumes reached ($MAX_ATTACHED_VOLUMES)"
     fi
 
-    local created_volumes=$(cat /var/run/ebs_autoscale_created_volumes || echo 0)
+    local created_volumes=$(cat /var/run/ebs_autoscale_created_volumes)
     # check how many volumes this instance has created
     if [ "${created_volumes}" -ge "$MAX_CREATED_VOLUMES" ]; then
         error "maximum number of created volumes reached ($MAX_CREATED_VOLUMES)"
     fi
 
-    local created_size=$(cat /var/run/ebs_autoscale_created_size || echo 0)
+    local created_size=$(cat /var/run/ebs_autoscale_created_size)
     # check how much EBS storage this instance has created
     if [ "$created_size" -ge "$MAX_TOTAL_EBS_SIZE" ]; then
         error "maximum total ebs volume size reached ($MAX_TOTAL_EBS_SIZE)"
