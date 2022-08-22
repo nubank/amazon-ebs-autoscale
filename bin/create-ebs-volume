@@ -144,8 +144,8 @@ if [[ ! "$SIZE" ]]; then
 fi
 
 function get_next_logical_device() {
-    next=$(( $(cat ebs_autoscale_device_used) + 1 ))
-    echo "$next" > ebs_autoscale_device_used
+    next=$(( $(cat /var/run/ebs_autoscale_device_used) + 1 ))
+    echo "$next" > /var/run/ebs_autoscale_device_used
     echo "/dev/xvdn${next}"
 }
 

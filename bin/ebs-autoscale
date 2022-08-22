@@ -193,7 +193,7 @@ while true; do
     logthis "LOW DISK (${PCT_UTILIZATION}%): Adding more."
     if ! add_space "$NUM_DEVICES"; then
       logthis "Failed to add space, retrying"
-      break
+      continue
     fi
 	  NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
     THRESHOLD=$(calc_threshold "$NUM_DEVICES")
