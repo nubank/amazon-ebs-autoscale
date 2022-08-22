@@ -197,6 +197,8 @@ while true; do
     fi
     NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
     THRESHOLD=$(calc_threshold "$NUM_DEVICES")
+    STATS=$(df -BG  ${MOUNTPOINT} | grep -v Filesystem)
+    TOTAL_SIZE=$(echo ${STATS} | awk '{print $2}')
     LOG_COUNT=$LOG_INTERVAL
   fi
   if [ "${LOG_COUNT}" -ge "${LOG_INTERVAL}" ]; then
