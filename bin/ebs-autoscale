@@ -195,7 +195,7 @@ while true; do
       logthis "Failed to add space, retrying"
       continue
     fi
-	  NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
+    NUM_DEVICES=$(expr $NUM_DEVICES + 1 )
     THRESHOLD=$(calc_threshold "$NUM_DEVICES")
     LOG_COUNT=$LOG_INTERVAL
   fi
