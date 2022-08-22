@@ -143,8 +143,14 @@ add_space () {
       else
         logthis "Adding device ${DEVICE} to logical volume /dev/mapper/${LVM_VG}-${LVM_LV}"
         vgextend ${LVM_VG} ${DEVICE}
-        while ! timeout 5 lvresize -l 100%VG /dev/mapper/${LVM_VG}-${LVM_LV}; do
-          sleep 1
+        for i in $(seq 3); do
+          timeout -k 6 5 -- lvresize -l 100%VG /dev/mapper/${LVM_VG}-${LVM_LV}
+          status=$?
+          if [ ! "$status" -eq "0" ]; then
+            logthis "lvresize failed with $status, try $i"
+            [ "$i" -eq "3" ] && return 1
+            sleep 2
+          fi
         done
         resize2fs /dev/mapper/${LVM_VG}-${LVM_LV}
       fi
