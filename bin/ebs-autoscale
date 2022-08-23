@@ -147,7 +147,7 @@ add_space () {
           timeout -k 6 5 lvresize -l 100%VG /dev/mapper/${LVM_VG}-${LVM_LV}
           status=$?
           # 5 means LV size already matches
-          if [ "$status" -ne "0" -and "$status" -ne "5" ]; then
+          if [ "$status" -ne "0" -a "$status" -ne "5" ]; then
             logthis "lvresize failed with $status, try $i"
             [ "$i" -eq "3" ] && return 1
             sleep 2
