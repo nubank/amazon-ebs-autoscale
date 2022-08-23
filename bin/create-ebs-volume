@@ -146,7 +146,7 @@ fi
 function get_next_logical_device() {
     next=$(( $(cat /var/run/ebs_autoscale_device_used) + 1 ))
     echo "$next" > /var/run/ebs_autoscale_device_used
-    echo "/dev/xvdn${next}"
+    awk "BEGIN{printf \"/dev/xvdn%c\", $(( 96 + next ))}"
 }
 
 function create_and_attach_volume() {
