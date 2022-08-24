@@ -33,6 +33,7 @@ function initialize() {
     export AWS_REGION=$(echo ${AWS_AZ} | sed -e 's/[a-z]$//')
     export INSTANCE_ID=$(curl -s  http://169.254.169.254/latest/meta-data/instance-id)
     export EBS_AUTOSCALE_CONFIG_FILE=/etc/ebs-autoscale.json
+    trap "exit 1" TERM
 }
 
 function detect_init_system() {
@@ -56,14 +57,23 @@ function get_metadata() {
     echo `curl -s http://169.254.169.254/latest/meta-data/$key`
 }
 
-function logthis() {
-    echo "[`date`] $1" >> $(get_config_value .logging.log_file)
+function loginfo() {
+    echo "INFO $1" >> $(get_config_value .logging.log_file)
+}
+
+function logerr() {
+    echo "ERR $1" >> $(get_config_value .logging.log_file)
+}
+
+function error() {
+    logerr "$1"
+    kill -TERM $$
 }
 
 function starting() {
-    logthis "Starting EBS Autoscale"
+    loginfo "Starting EBS Autoscale $1"
 }
 
 function stopping() {
-    logthis "Stopping EBS Autoscale"
+    loginfo "Stopping EBS Autoscale"
 }
