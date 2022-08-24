@@ -228,8 +228,11 @@ function create_and_attach_volume() {
         2>> $tmpfile 1>&2
 
     if [ $? -ne 0 ] ; then
-        aws ec2 delete-volume --region $region --volume-id $volume_id 2>> $tmpfile
-        logerr "Failed to wait for volume available"
+        aws ec2 delete-volume \
+            --region $region \
+            --volume-id $volume_id \
+            2>> $tmpfile
+        logerr "deleting $volume_id: failed to wait for volume available"
         error "Error log: $(cat $tmpfile | tr '\n' ,)"
     fi
 
@@ -244,12 +247,13 @@ function create_and_attach_volume() {
         --instance-id $instance_id \
         --volume-id $volume_id \
         2>> $tmpfile 1>&2
-    
-    status="$?"
-    if [ ! "$status" -eq 0 ]; then
-        logerr "deleting volume $volume_id"
-        aws ec2 delete-volume --region $region --volume-id $volume_id 2>> $tmpfile
-        logerr "could not attach volume $volume_id to instance"
+
+    if [ $? -ne 0 ]; then
+        aws ec2 delete-volume \
+            --region $region \
+            --volume-id $volume_id \
+            2>> $tmpfile
+        logerr "deleting $volume_id: could not attach to instance"
         error "Error log: $(cat $tmpfile | tr '\n' ,)"
     fi
 
