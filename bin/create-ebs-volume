@@ -28,8 +28,6 @@
 #  IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 #  POSSIBILITY OF SUCH DAMAGE.
 
-set -e
-
 . /opt/local/amazon-ebs-autoscale-shared-utils.sh
 initialize
 
@@ -69,12 +67,6 @@ if [ "$#" -lt 1 ]; then
     echo "$USAGE"
     exit 1
 fi
-
-function error() {
-    logthis "Error: $1"
-    echo "Error: $1" >&2
-    exit 1
-}
 
 TYPE=$(get_config_value .volume.type)
 IOPS=$(get_config_value .volume.iops)
@@ -167,7 +159,6 @@ function create_and_attach_volume() {
             sed 's/{Key:/{Key=/g ; s/,Value:/,Value=/g ; s/{Key=aws:[^}]*}//g ; s/,\{2,\}/,/g ; s/,$//g ; s/^,//g'
       )
 
-    local max_attempts=10
     local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes)
     # check how many volumes are currently attached
     if [ "${attached_volumes}" -ge "$MAX_ATTACHED_VOLUMES" ]; then
@@ -191,72 +182,61 @@ function create_and_attach_volume() {
     if [ -z "$device" ]; then
         error "no device names available for volume"
     fi
-    logthis "next available device: $device"
+    loginfo "next available device: $device"
 
     # create the volume
-    local tmpfile=$(mktemp /tmp/ebs-autoscale.create-volume.XXXXXXXXXX)
     local volume_opts="--size $SIZE --volume-type $TYPE"
     if [ "$TYPE" == "io1" ]; then volume_opts="$volume_opts --iops $IOPS"; fi
     if [ "$ENCRYPTED" == "1" ]; then volume_opts="$volume_opts --encrypted"; fi
-    local timestamp=$(date "+%F %T UTC%z")  # YYYY-mm-dd HH:MM:SS UTC+0000
 
-    local volume=""
-    for i in $(eval echo "{0..$max_attempts}") ; do
+    # The $instance_tags variable could be empty and will cause a TagSpecifications[0].Tags[0] error if
+    # it is passed as an empty value because it must be comma-separated from the other key-value pairs.
+    # Use a Shell Parameter Expansion to determine if the variable contains a value or not. If it has a value, 
+    # append a comma at the end so the aws cli syntax is compliant when it is subbed into the tag_specification variable.
+    local instance_tags=${instance_tags:+${instance_tags},}
+    local tag_specification="ResourceType=volume,Tags=[$instance_tags{Key=source-instance,Value=$instance_id},{Key=amazon-ebs-autoscale,Value=true}]"
 
-      # The $instance_tags variable could be empty and will cause a TagSpecifications[0].Tags[0] error if
-      # it is passed as an empty value because it must be comma-separated from the other key-value pairs.
-      # Use a Shell Parameter Expansion to determine if the variable contains a value or not. If it has a value, 
-      # append a comma at the end so the aws cli syntax is compliant when it is subbed into the tag_specification variable.
-      local instance_tags=${instance_tags:+${instance_tags},}
-      local tag_specification="ResourceType=volume,Tags=[$instance_tags{Key=source-instance,Value=$instance_id},{Key=amazon-ebs-autoscale-creation-time,Value=$timestamp}]"
+    # Note: Shellcheck says the $vars in this command should be double quoted to prevent globbing and word-splitting,
+    # but this ends up making the '--encrypted' argument to fail during the execution of the install script. Conversely, NOT putting double-quotes
+    # around $tag_specification causes a parsing error due to the space in the $timestamp value (added to $tag_specification above).
+    local tmpfile=$(mktemp /tmp/ebs-autoscale.create-volume.XXXXXXXXXX)
+    local volume=$(\
+        aws ec2 create-volume \
+            --region $region \
+            --availability-zone $availability_zone \
+            $volume_opts \
+            --tag-specification "$tag_specification" \
+            2>> $tmpfile
+    )
 
-      # Note: Shellcheck says the $vars in this command should be double quoted to prevent globbing and word-splitting,
-      # but this ends up making the '--encrypted' argument to fail during the execution of the install script. Conversely, NOT putting double-quotes
-      # around $tag_specification causes a parsing error due to the space in the $timestamp value (added to $tag_specification above).
-
-      local volume=$(\
-          aws ec2 create-volume \
-              --region $region \
-              --availability-zone $availability_zone \
-              $volume_opts \
-              --tag-specification "$tag_specification" \
-          2> $tmpfile
-      )
-
-      if [ $? -eq 0 ]; then
-           break
-      elif [ $i -eq $max_attempts ]; then
-          logthis "Could not create a volume after $i attempts. Last response was: $volume"
-          break
-      fi
-      sleep $(( 2 ** i + $RANDOM % 3))
-    done
+    if [ $? -ne 0 ]; then
+        logerr "Failed to create a volume, response was: $volume"
+        error "Error log: $(cat $tmpfile)"
+    fi
 
     local volume_id=`echo $volume | jq -r '.VolumeId'`
-
     if [ -z "$volume_id" ]; then
-        logthis "$(cat $tmpfile)"  # log captured error
-        cat $tmpfile               # print captured error (e.g. when called during install)
-        rm $tmpfile
-
-        error "could not create volume"
+        logerr "Failed to parse volume id from response: $volume"
+        error "Error log: $(cat $tmpfile | tr '\n' ,)"
     fi
-    rm $tmpfile
 
-    logthis "created volume: $volume_id [ $volume_opts ]"
+    loginfo "created volume: $volume_id [ $volume_opts ]"
 
     # In theory this shouldn't need to loop as aws ec2 wait will retry but I have seen it exceed request limits
-    for i in {1..3} ; do
-       if aws ec2 wait volume-available --region $region --volume-ids $volume_id; then
-         logthis "volume $volume_id available"
-         break
-       fi
-    done
+    aws ec2 wait volume-available \
+        --region $region \
+        --volume-ids $volume_id \
+        2>> $tmpfile 1>&2
+
+    if [ $? -ne 0 ] ; then
+        aws ec2 delete-volume --region $region --volume-id $volume_id 2>> $tmpfile
+        logerr "Failed to wait for volume available"
+        error "Error log: $(cat $tmpfile | tr '\n' ,)"
+    fi
 
     # Need to assure that the created volume is successfully attached to be
     # cost efficient.  If attachment fails, delete the volume.
-    set +e
-    logthis "attaching volume $volume_id"
+    loginfo "attaching volume $volume_id"
 
     sleep 1
     aws ec2 attach-volume \
@@ -264,34 +244,30 @@ function create_and_attach_volume() {
         --device $device \
         --instance-id $instance_id \
         --volume-id $volume_id \
-    > /dev/null
+        2>> $tmpfile 1>&2
     
     status="$?"
     if [ ! "$status" -eq 0 ]; then
-        logthis "deleting volume $volume_id"
-        aws ec2 delete-volume \
-            --region $region \
-            --volume-id $volume_id \
-        > /dev/null
-        
-        error "could not attach volume to instance"
+        logerr "deleting volume $volume_id"
+        aws ec2 delete-volume --region $region --volume-id $volume_id 2>> $tmpfile
+        logerr "could not attach volume $volume_id to instance"
+        error "Error log: $(cat $tmpfile | tr '\n' ,)"
     fi
-    set -e
 
     echo "$(( attached_volumes + 1 ))" > /var/run/ebs_autoscale_attached_volumes
     echo "$(( created_volumes + 1 ))" > /var/run/ebs_autoscale_created_volumes
     echo "$(( created_size + SIZE ))" > /var/run/ebs_autoscale_created_size
 
-    logthis "waiting for volume $volume_id on filesystem"
+    loginfo "waiting for volume $volume_id on filesystem"
     retry=10
     for i in $(seq $retry); do
         if [ -e "$device" ]; then
-            logthis "volume $volume_id on filesystem as $device"
+            loginfo "volume $volume_id on filesystem as $device"
             break
         fi
 
         if [ "$i" -eq "10" ]; then
-           error "waiting for volume $volume_id on filesystem as $device timed out"
+           error "Failed waiting for volume $volume_id on filesystem as $device, timed out"
         fi
 
         sleep 1
@@ -302,8 +278,13 @@ function create_and_attach_volume() {
         --region $region \
         --instance-id $instance_id \
         --block-device-mappings "DeviceName=$device,Ebs={DeleteOnTermination=true,VolumeId=$volume_id}" \
-    > /dev/null
-    logthis "volume $volume_id DeleteOnTermination ENABLED"
+        2>> $tmpfile 1>&2
+    if [ $? -eq 0 ]; then
+        loginfo "volume $volume_id DeleteOnTermination ENABLED"
+    else
+        # swallow the error because we clean up devices when instances go away
+        logerr "volume $volume_id DeleteOnTermination NOT ENABLED"
+    fi
 
     echo $device
 }
