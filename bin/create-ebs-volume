@@ -222,7 +222,6 @@ function create_and_attach_volume() {
 
     loginfo "created volume: $volume_id [ $volume_opts ]"
 
-    # In theory this shouldn't need to loop as aws ec2 wait will retry but I have seen it exceed request limits
     aws ec2 wait volume-available \
         --region $region \
         --volume-ids $volume_id \
