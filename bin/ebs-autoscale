@@ -117,7 +117,15 @@ add_space () {
             sleep 2
           fi
         done
-        resize2fs /dev/mapper/${LVM_VG}-${LVM_LV}
+        for i in $(seq 3); do
+          resize2fs /dev/mapper/${LVM_VG}-${LVM_LV}
+          status=$?
+          if [ "$status" -ne "0" ]; then
+            logerr "resize2fs failed with $status, try $i"
+            [ "$i" -eq "3" ] && return 1
+            sleep 2
+          fi
+        fi
       fi
       loginfo "Finished extending logical volume"
 
