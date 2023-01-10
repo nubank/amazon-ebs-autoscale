@@ -125,7 +125,7 @@ add_space () {
             [ "$i" -eq "3" ] && return 1
             sleep 2
           fi
-        fi
+        done
       fi
       loginfo "Finished extending logical volume"
 
