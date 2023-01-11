@@ -8,6 +8,7 @@
     "volume": {
         "type": "%%VOLUMETYPE%%",
         "iops": 3000,
+        "throughput": 125,
         "encrypted": 1
     },
     "detection_interval": 2,
