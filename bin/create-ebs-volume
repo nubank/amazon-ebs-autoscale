@@ -46,6 +46,8 @@ Options
 
     -i, --iops          IOPS for volume. Only valid if type=io1. (Default: 3000)
 
+    --throughput        Throughput for volume. (Default: 125)
+
     --not-encrypted     Flag to make the volume un-encyrpted. Default is to create
                         an encrypted volume
     
@@ -70,6 +72,7 @@ fi
 
 TYPE=$(get_config_value .volume.type)
 IOPS=$(get_config_value .volume.iops)
+THROUGHPUT=$(get_config_value .volume.throughput)
 ENCRYPTED=$(get_config_value .volume.encrypted)
 MAX_TOTAL_EBS_SIZE=$(get_config_value .limits.max_logical_volume_size)
 MAX_ATTACHED_VOLUMES=$(get_config_value .limits.max_ebs_volume_count)
@@ -89,6 +92,10 @@ while (( "$#" )); do
             ;;
         -i|--iops)
             IOPS=$2
+            shift 2
+            ;;
+        --throughput)
+            THROUGHPUT=$2
             shift 2
             ;;
         --not-encrypted)
@@ -186,7 +193,10 @@ function create_and_attach_volume() {
 
     # create the volume
     local volume_opts="--size $SIZE --volume-type $TYPE"
-    if [ "$TYPE" == "io1" ]; then volume_opts="$volume_opts --iops $IOPS"; fi
+    if [ "$TYPE" == "io1" ] || [ "$TYPE" == "gp3" ]; then
+        volume_opts="$volume_opts --iops $IOPS";
+    fi
+    if [ "$TYPE" == "gp3" ]; then volume_opts="$volume_opts --throughput $THROUGHPUT"; fi
     if [ "$ENCRYPTED" == "1" ]; then volume_opts="$volume_opts --encrypted"; fi
 
     # The $instance_tags variable could be empty and will cause a TagSpecifications[0].Tags[0] error if
