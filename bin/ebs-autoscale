@@ -39,6 +39,15 @@ done
 
 MAX_EBS_VOLUME_SIZE=$(get_config_value .limits.max_ebs_volume_size)
 MAX_LOGICAL_VOLUME_SIZE=$(get_config_value .limits.max_logical_volume_size)
+
+# scale max volume size to size of the instance
+# use sqrt to not go bonkers on 16xl+ instances
+# ensure the coefficient is 1 for 2xl instance size
+MAX_LOGICAL_VOLUME_SIZE=$(
+  echo $((`nproc --all` / 4)) $MAX_LOGICAL_VOLUME_SIZE | \
+  awk '{printf "%.0f", sqrt($1-1)*$2}'
+)
+
 MAX_EBS_VOLUME_COUNT=$(get_config_value .limits.max_ebs_volume_count)
 
 FILE_SYSTEM=$(get_config_value .filesystem)
