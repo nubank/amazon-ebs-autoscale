@@ -110,7 +110,7 @@ add_space () {
     exit_status=$?
     if [ $exit_status -eq 0 ]; then
       # Update the total autoscaled size
-      echo $((total_autoscaled_size + vol_size)) > /var/run/ebs_autoscale_created_size
+      echo $((curr_autoscaled_size + vol_size)) > /var/run/ebs_autoscale_created_size
       if [ "${FILE_SYSTEM}" = "btrfs" ]; then
         loginfo "Adding device ${DEVICE} to logical volume ${MOUNTPOINT}"
         btrfs device add ${DEVICE} ${MOUNTPOINT}
