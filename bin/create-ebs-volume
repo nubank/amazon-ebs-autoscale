@@ -148,23 +148,83 @@ function get_next_logical_device() {
     awk "BEGIN{printf \"/dev/xvdb%c\", $(( 96 + next ))}"
 }
 
-function create_and_attach_volume() {
-    local instance_id=$(get_metadata instance-id)
-    local availability_zone=$(get_metadata placement/availability-zone)
-    local region=${availability_zone%?}
+# Render the instance tags exposed by IMDS to match: --tag-specification
+# Output Example:
+# {Key=Name,Value=Jenkins},{Key=Owner,Value=DevOps}
+# Requires MetadataOptions.InstanceMetadataTags=enabled on the instance;
+# returns non-zero when it is not, so the caller can fall back to the API.
+# Preferred over ec2:DescribeTags because it needs no credentials, no network
+# and no aws cli process, none of which can then fail halfway through.
+function get_instance_tags_from_imds() {
+    local url=http://169.254.169.254/latest/meta-data/tags/instance
+    local keys
+    keys=$(curl -s -f --connect-timeout 1 --max-time 5 $url/) || return 1
+    [ -n "$keys" ] || return 1
 
-    local instance_tags=""
-    # Render instance tags to match: --tag-specification
-    # Output Example:
-    # {Key=Name,Value=Jenkins},{Key=Owner,Value=DevOps}
-    instance_tags=$(
+    local key value tags=""
+    while read -r key; do
+        # aws: is a reserved tag prefix, CreateVolume rejects it
+        case "$key" in ''|aws:*) continue ;; esac
+
+        value=$(curl -s -f --connect-timeout 1 --max-time 5 "$url/$key") || return 1
+        [ -n "$value" ] || continue
+
+        # the cli shorthand syntax has no escaping, so a tag containing any of
+        # its delimiters would corrupt the whole --tag-specification
+        case "$key$value" in
+            *[]{}[=,]*)
+                logerr "skipping tag $key: value not expressible in cli shorthand"
+                continue
+                ;;
+        esac
+
+        tags="$tags{Key=$key,Value=$value},"
+    done <<< "$keys"
+
+    echo "${tags%,}"
+}
+
+# Same rendering, from ec2:DescribeTags. pipefail is scoped to the subshell so
+# a broken pipeline is reported instead of being coerced to an empty tag set by
+# the trailing sed, which exits 0 on empty input.
+function get_instance_tags_from_api() {
+    local region=$1
+    local instance_id=$2
+    local tags
+    tags=$(
+      set -o pipefail
       aws ec2 describe-tags \
         --region $region \
         --filters "Name=resource-id,Values=$instance_id" | \
             jq -c '[.Tags[] | select(.Value | length > 0) | {Key,Value}]' | \
             tr -d '[]"' | \
             sed 's/{Key:/{Key=/g ; s/,Value:/,Value=/g ; s/{Key=aws:[^}]*}//g ; s/,\{2,\}/,/g ; s/,$//g ; s/^,//g'
-      )
+      ) || return 1
+    [ -n "$tags" ] || return 1
+
+    echo "$tags"
+}
+
+function create_and_attach_volume() {
+    local instance_id=$(get_metadata instance-id)
+    local availability_zone=$(get_metadata placement/availability-zone)
+    local region=${availability_zone%?}
+
+    # The volume inherits the instance tags: IAM gates DeleteVolume and
+    # ModifyInstanceAttribute on NU_SQUAD, so an untagged volume cannot get
+    # DeleteOnTermination and outlives the instance.
+    local instance_tags
+    instance_tags=$(get_instance_tags_from_imds) || instance_tags=""
+    if [ -z "$instance_tags" ]; then
+        loginfo "no instance tags from IMDS, falling back to ec2:DescribeTags"
+        instance_tags=$(get_instance_tags_from_api "$region" "$instance_id") || instance_tags=""
+    fi
+    if [ -z "$instance_tags" ]; then
+        # Carry on regardless: losing scratch space fails the job, while an
+        # untagged volume is swept hourly by the di-ol ktlo lambda, which may
+        # delete anything tagged amazon-ebs-autoscale=true.
+        logerr "could not read instance tags from IMDS or ec2:DescribeTags, creating volume untagged"
+    fi
 
     local attached_volumes=$(cat /var/run/ebs_autoscale_attached_volumes)
     # check how many volumes are currently attached
